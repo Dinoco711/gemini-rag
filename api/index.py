@@ -1,51 +1,52 @@
+import os
 from flask import Flask, request, jsonify
-from database_module import add_documents, retrieve_documents
-from google import genai
+import chromadb
+from database_module import DB_NAME, embed_fn
+import google_genai as genai
 
+# Initialize Flask app
 app = Flask(__name__)
 
-# Set up Google Gemini API
-GOOGLE_API_KEY = "AIzaSyA1Rnv5FsdF5Ex77cJEbg_-cCA7tMcFDt4"
-client = genai.Client(api_key=GOOGLE_API_KEY)
+# Initialize ChromaDB client and collection
+db_client = chromadb.PersistentClient()
+db = db_client.get_or_create_collection(name=DB_NAME, embedding_function=embed_fn)
 
-# API Endpoint to add documents to ChromaDB
-@app.route('/add_data', methods=['POST'])
-def add_data():
-    data = request.json.get("documents", [])
-    if not data:
-        return jsonify({"error": "No documents provided"}), 400
-    add_documents(data)
-    return jsonify({"message": "Documents added successfully!"})
+# Load Google Gemini API key
+GOOGLE_API_KEY = os.getenv("AIzaSyA1Rnv5FsdF5Ex77cJEbg_-cCA7tMcFDt4")
+genai.configure(api_key=GOOGLE_API_KEY)
 
-# API Endpoint to handle user queries using RAG
-@app.route('/query', methods=['POST'])
-def query():
-    user_query = request.json.get("query", "")
-    if not user_query:
-        return jsonify({"error": "No query provided"}), 400
+def retrieve_relevant_docs(query_text, n_results=3):
+    """Retrieve relevant documents from ChromaDB."""
+    embed_fn.document_mode = False  # Switch to query mode
+    result = db.query(query_texts=[query_text], n_results=n_results)
+    return result["documents"][0] if result["documents"] else []
 
-    retrieved_docs = retrieve_documents(user_query)
-    if not retrieved_docs:
-        return jsonify({"response": "No relevant documents found."})
-
-    # Build prompt with retrieved documents
-    prompt = f"""
-    You are an AI assistant answering user queries based on reference documents.
-    Be concise but informative. If the documents do not provide enough details, state that clearly.
-
-    QUESTION: {user_query}
+def generate_answer(query, retrieved_docs):
+    """Generate an answer using Google Gemini."""
+    prompt = f"""You are a helpful AI assistant that answers questions based on the provided reference texts. 
+    If relevant information is found, use it to form a comprehensive answer. Otherwise, state that you don't have enough information.
+    
+    QUESTION: {query}
     """
     for doc in retrieved_docs:
         prompt += f"\nPASSAGE: {doc}"
+    
+    response = genai.generate_content(model="gemini-1.5-flash", contents=prompt)
+    return response.text
 
-    # Generate response using Google Gemini API
-    answer = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
-    )
+@app.route("/ask", methods=["POST"])
+def ask():
+    """Endpoint to handle user queries."""
+    data = request.json
+    query = data.get("query", "").strip()
+    
+    if not query:
+        return jsonify({"error": "Query is required."}), 400
+    
+    retrieved_docs = retrieve_relevant_docs(query)
+    answer = generate_answer(query, retrieved_docs)
+    
+    return jsonify({"query": query, "answer": answer})
 
-    return jsonify({"response": answer.text})
-
-# Run the Flask app
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
