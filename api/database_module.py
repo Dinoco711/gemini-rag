@@ -1,36 +1,45 @@
-# database_module.py
-
 import chromadb
 from google import genai
 from google.genai import types
-from data_module import documents
+from google.api_core import retry
+from chromadb import Documents, EmbeddingFunction, Embeddings
 
-# Set up Google Gemini API key (ensure you store this securely)
+# Set up Google Gemini API
 GOOGLE_API_KEY = "AIzaSyA1Rnv5FsdF5Ex77cJEbg_-cCA7tMcFDt4"
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
-# Define embedding function using Gemini API
-class GeminiEmbeddingFunction:
-    def __init__(self, document_mode=True):
-        self.document_mode = document_mode
+# Define retry condition for Gemini API calls
+is_retriable = lambda e: isinstance(e, genai.errors.APIError) and e.code in {429, 503}
 
-    def __call__(self, input_texts):
+# Define the embedding function for ChromaDB
+class GeminiEmbeddingFunction(EmbeddingFunction):
+    document_mode = True  # True for storing documents, False for queries
+
+    @retry.Retry(predicate=is_retriable)
+    def __call__(self, input: Documents) -> Embeddings:
         task_type = "retrieval_document" if self.document_mode else "retrieval_query"
         response = client.models.embed_content(
             model="models/text-embedding-004",
-            contents=input_texts,
+            contents=input,
             config=types.EmbedContentConfig(task_type=task_type),
         )
-        return [embedding.values for embedding in response.embeddings]
+        return [e.values for e in response.embeddings]
 
-# Initialize ChromaDB and insert documents
-DB_NAME = "googlecar_db"
-embed_fn = GeminiEmbeddingFunction(document_mode=True)
+# Initialize ChromaDB
+DB_NAME = "rag_chromadb"
+embed_fn = GeminiEmbeddingFunction()
+embed_fn.document_mode = True  # Default mode for inserting documents
+
 chroma_client = chromadb.PersistentClient(path="./chroma_db")  # Persistent storage
 db = chroma_client.get_or_create_collection(name=DB_NAME, embedding_function=embed_fn)
 
-# Add documents to ChromaDB
-db.add(documents=documents, ids=[str(i) for i in range(len(documents))])
+# Function to add documents
+def add_documents(documents: list):
+    ids = [str(i) for i in range(len(documents))]
+    db.add(documents=documents, ids=ids)
 
-# Confirm data insertion
-print(f"Total documents stored: {db.count()}")
+# Function to retrieve relevant documents
+def retrieve_documents(query: str, n_results: int = 3):
+    embed_fn.document_mode = False  # Switch to query mode
+    result = db.query(query_texts=[query], n_results=n_results)
+    return result["documents"][0] if "documents" in result else []
