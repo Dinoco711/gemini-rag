@@ -1,6 +1,6 @@
 """
 This is the main Flask application that implements a RAG-based chatbot using
-Google's Gemini model and ChromaDB for vector storage.
+Google's Gemini model and a simple vector store for document retrieval.
 """
 
 import os
@@ -41,7 +41,7 @@ def home():
         </head>
         <body>
             <h1>RAG Chatbot with Google Gemini</h1>
-            <p>This is a Retrieval Augmented Generation chatbot using Google's Gemini model and ChromaDB.</p>
+            <p>This is a Retrieval Augmented Generation chatbot using Google's Gemini model and a vector store.</p>
             <p>Use the <span class="endpoint">/chat</span> endpoint to interact with the chatbot.</p>
         </body>
     </html>
