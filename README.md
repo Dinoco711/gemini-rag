@@ -1,28 +1,62 @@
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+# RAG Chatbot with Google Gemini and Flask
 
-# Flask + Vercel
+This project implements a Retrieval-Augmented Generation (RAG) chatbot using Google's Gemini models through the `google-generativeai` library, with ChromaDB as the vector store for document retrieval.
 
-This example shows how to use Flask 3 on Vercel with Serverless Functions using the [Python Runtime](https://vercel.com/docs/concepts/functions/serverless-functions/runtimes/python).
+## Components
 
-## Demo
+1. **test_data.py**: Contains simulated document data for testing purposes
+2. **vector_store.py**: Handles ChromaDB integration for document embedding and retrieval
+3. **index.py**: Main Flask application with the chatbot endpoint
 
-https://flask-python-template.vercel.app/
+## Setup
 
-## How it Works
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-This example uses the Web Server Gateway Interface (WSGI) with Flask to enable handling requests on Vercel with Serverless Functions.
+2. Get a Google AI API key from [Google AI Studio](https://ai.google.dev/)
 
-## Running Locally
+3. Set your API key as an environment variable:
+   ```bash
+   export GOOGLE_API_KEY="your-api-key-here"
+   ```
 
+## Running the Application
+
+Start the Flask server:
 ```bash
-npm i -g vercel
-vercel dev
+python index.py
 ```
 
-Your Flask application is now available at `http://localhost:3000`.
+The server will run on `http://localhost:5000` by default.
 
-## One-Click Deploy
+## Using the Chatbot
 
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
+Send a POST request to the `/chat` endpoint with a JSON payload containing your query:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+```bash
+curl -X POST http://localhost:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is artificial intelligence?"}'
+```
+
+The response will be in JSON format:
+```json
+{
+  "response": "Artificial Intelligence (AI) refers to the simulation of human intelligence in machines that are programmed to think and learn like humans..."
+}
+```
+
+## How It Works
+
+1. When a query is received, the system searches ChromaDB for relevant document chunks
+2. Retrieved context is combined with the user's query in a prompt to Google's Gemini model
+3. Gemini generates a response based on both the retrieved context and its own knowledge
+4. The response is returned to the user
+
+## Customizing
+
+- Add more documents to `test_data.py` to expand the knowledge base
+- Adjust the number of results retrieved in `vector_store.py` by changing the `n_results` parameter
+- Modify the prompt template in `index.py` to change how the chatbot responds 
