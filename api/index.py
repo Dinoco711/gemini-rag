@@ -1,52 +1,101 @@
+"""
+This is the main Flask application that implements a RAG-based chatbot using
+Google's Gemini model and ChromaDB for vector storage.
+"""
+
 import os
 from flask import Flask, request, jsonify
-import chromadb
-from database_module import DB_NAME, embed_fn
-import google_genai as genai
+import google.generativeai as genai
+from vector_store import initialize_vector_store
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# Initialize ChromaDB client and collection
-db_client = chromadb.PersistentClient()
-db = db_client.get_or_create_collection(name=DB_NAME, embedding_function=embed_fn)
+# Get API key from environment variable
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-# Load Google Gemini API key
-GOOGLE_API_KEY = os.getenv("AIzaSyA1Rnv5FsdF5Ex77cJEbg_-cCA7tMcFDt4")
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY environment variable is not set")
+
+# Configure Google Generative AI
 genai.configure(api_key=GOOGLE_API_KEY)
 
-def retrieve_relevant_docs(query_text, n_results=3):
-    """Retrieve relevant documents from ChromaDB."""
-    embed_fn.document_mode = False  # Switch to query mode
-    result = db.query(query_texts=[query_text], n_results=n_results)
-    return result["documents"][0] if result["documents"] else []
+# Initialize the Gemini model
+MODEL_NAME = "gemini-1.5-pro"  # Use the latest available model
+model = genai.GenerativeModel(MODEL_NAME)
 
-def generate_answer(query, retrieved_docs):
-    """Generate an answer using Google Gemini."""
-    prompt = f"""You are a helpful AI assistant that answers questions based on the provided reference texts. 
-    If relevant information is found, use it to form a comprehensive answer. Otherwise, state that you don't have enough information.
-    
-    QUESTION: {query}
+# Initialize vector store with test documents
+vector_store = initialize_vector_store(GOOGLE_API_KEY)
+
+@app.route('/')
+def home():
+    return """
+    <html>
+        <head>
+            <title>RAG Chatbot</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+                h1 { color: #4285f4; }
+                p { margin-bottom: 20px; }
+                .endpoint { background-color: #f1f1f1; padding: 10px; border-radius: 5px; }
+            </style>
+        </head>
+        <body>
+            <h1>RAG Chatbot with Google Gemini</h1>
+            <p>This is a Retrieval Augmented Generation chatbot using Google's Gemini model and ChromaDB.</p>
+            <p>Use the <span class="endpoint">/chat</span> endpoint to interact with the chatbot.</p>
+        </body>
+    </html>
     """
-    for doc in retrieved_docs:
-        prompt += f"\nPASSAGE: {doc}"
-    
-    response = genai.generate_content(model="gemini-1.5-flash", contents=prompt)
-    return response.text
 
-@app.route("/ask", methods=["POST"])
-def ask():
-    """Endpoint to handle user queries."""
+@app.route('/chat', methods=['POST'])
+def chat():
+    """
+    Endpoint for the RAG chatbot interaction.
+    
+    Expected JSON payload:
+    {
+        "query": "Your question here"
+    }
+    
+    Returns:
+    {
+        "response": "The chatbot's response"
+    }
+    """
+    # Get the query from the request
     data = request.json
-    query = data.get("query", "").strip()
+    if not data or 'query' not in data:
+        return jsonify({"error": "Missing 'query' in request"}), 400
     
-    if not query:
-        return jsonify({"error": "Query is required."}), 400
+    query = data['query']
     
-    retrieved_docs = retrieve_relevant_docs(query)
-    answer = generate_answer(query, retrieved_docs)
+    try:
+        # Step 1: Retrieve relevant content from the vector store
+        context = vector_store.query(query)
+        
+        # Step 2: Construct the prompt with retrieved context
+        prompt = f"""
+        You are an AI assistant focused on providing accurate information.
+        
+        Use the following retrieved context to answer the user's question. If the context doesn't
+        contain relevant information, acknowledge that and provide a general answer based on your knowledge.
+        
+        Retrieved context:
+        {context}
+        
+        User's question: {query}
+        """
+        
+        # Step 3: Generate a response using Google's Gemini
+        response = model.generate_content(prompt)
+        
+        # Step 4: Return the response
+        return jsonify({"response": response.text})
     
-    return jsonify({"query": query, "answer": answer})
+    except Exception as e:
+        app.logger.error(f"Error generating response: {str(e)}")
+        return jsonify({"error": f"Failed to generate response: {str(e)}"}), 500
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    # Set debug to False in production
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
