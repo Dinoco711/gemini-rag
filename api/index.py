@@ -4,9 +4,14 @@ Google's Gemini model and a simple vector store for document retrieval.
 """
 
 import os
+import logging
 from flask import Flask, request, jsonify
 import google.generativeai as genai
-from vector_store import initialize_vector_store
+from vector_store import VectorStore, initialize_vector_store
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -63,7 +68,7 @@ def chat():
     }
     """
     # Get the query from the request
-    data = request.json
+    data = request.get_json()
     if not data or 'query' not in data:
         return jsonify({"error": "Missing 'query' in request"}), 400
     
@@ -87,15 +92,52 @@ def chat():
         """
         
         # Step 3: Generate a response using Google's Gemini
-        response = model.generate_content(prompt)
+        generation_config = {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_output_tokens": 1024,
+        }
+        
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+            }
+        ]
+        
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config,
+            safety_settings=safety_settings
+        )
         
         # Step 4: Return the response
-        return jsonify({"response": response.text})
+        if hasattr(response, 'text'):
+            return jsonify({"response": response.text})
+        else:
+            # Handle the case where response might be structured differently
+            return jsonify({"response": str(response)})
     
     except Exception as e:
-        app.logger.error(f"Error generating response: {str(e)}")
+        logger.error(f"Error generating response: {str(e)}")
         return jsonify({"error": f"Failed to generate response: {str(e)}"}), 500
 
 if __name__ == '__main__':
     # Set debug to False in production
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=os.environ.get("FLASK_DEBUG", "False").lower() == "true", 
+            host='0.0.0.0', 
+            port=port)
